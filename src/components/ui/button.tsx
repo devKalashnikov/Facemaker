@@ -32,7 +32,10 @@ const buttonVariants = cva(
       size: {
         sm: 'h-10 px-4 text-[11px]',
         default: 'h-12 px-5 text-xs',
-        lg: 'h-14 px-7 text-sm',
+        // lg is the headline action button. Bumped on mobile so primary
+        // CTAs (Press Start, Play Again, Start round) feel tappable on a
+        // phone — 64px is the iOS-friendly target. Desktop stays at 56px.
+        lg: 'h-16 sm:h-14 px-7 text-sm',
         icon: 'h-12 w-12',
       },
     },
