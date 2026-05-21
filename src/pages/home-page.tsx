@@ -34,29 +34,48 @@ export function HomePage() {
   // In remote mode, the "Today's Run" count is fetched per-player from
   // Supabase so it survives reloads and matches across devices. In
   // local-only mode it just reflects this device's stored rounds.
-  const [todayRoundCount, setTodayRoundCount] = useState<number | null>(null);
+  type TodayCountState =
+    | { status: 'idle' }            // local-only mode or not signed in
+    | { status: 'loading' }         // remote fetch in-flight
+    | { status: 'loaded'; value: number }
+    | { status: 'error' };
+  const [todayCount, setTodayCount] = useState<TodayCountState>(() =>
+    remoteEnabled && existingPlayer ? { status: 'loading' } : { status: 'idle' },
+  );
+
   useEffect(() => {
     if (!remoteEnabled || !existingPlayer) {
-      setTodayRoundCount(null);
+      setTodayCount({ status: 'idle' });
       return;
     }
     let cancelled = false;
-    fetchTodayRoundCountForPlayer(existingPlayer.id)
-      .then((n) => {
-        if (!cancelled) setTodayRoundCount(n);
-      })
-      .catch(() => {
-        if (!cancelled) setTodayRoundCount(0);
-      });
+    const run = () => {
+      setTodayCount((prev) =>
+        prev.status === 'loaded' ? prev : { status: 'loading' },
+      );
+      fetchTodayRoundCountForPlayer(existingPlayer.id)
+        .then((n) => {
+          if (!cancelled) setTodayCount({ status: 'loaded', value: n });
+        })
+        .catch(() => {
+          if (!cancelled) setTodayCount({ status: 'error' });
+        });
+    };
+    run();
+    // Re-fetch when the tab regains focus so the counter stays current
+    // after the user comes back from playing on another tab/device.
+    const onFocus = () => run();
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') run();
+    };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisibility);
     return () => {
       cancelled = true;
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisibility);
     };
   }, [remoteEnabled, existingPlayer]);
-
-  const todayDisplayCount =
-    remoteEnabled && existingPlayer
-      ? todayRoundCount ?? 0
-      : localResultsCount;
 
   const editionNo = useMemo(() => {
     const start = new Date(2026, 0, 1).getTime();
@@ -120,10 +139,20 @@ export function HomePage() {
         <aside className="flex flex-col gap-4 lg:gap-5">
           <StatBox
             kicker="Today's Run"
-            number={todayDisplayCount}
+            number={
+              todayCount.status === 'loaded'
+                ? todayCount.value
+                : todayCount.status === 'loading'
+                ? '…'
+                : todayCount.status === 'error'
+                ? '—'
+                : localResultsCount
+            }
             unit={
-              remoteEnabled && existingPlayer
-                ? 'rounds you logged today'
+              todayCount.status === 'error'
+                ? "couldn't reach the server — try refresh"
+                : remoteEnabled && existingPlayer
+                ? 'rounds you logged today · synced'
                 : remoteEnabled
                 ? 'rounds today (sign in to track)'
                 : 'rounds played on this device'
@@ -453,7 +482,7 @@ function StatBox({
   tone = 'ink',
 }: {
   kicker: string;
-  number: number;
+  number: number | string;
   unit: string;
   tone?: 'ink' | 'accent';
 }) {
